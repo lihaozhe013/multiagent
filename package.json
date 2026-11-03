@@ -1,0 +1,24 @@
+{
+  "name": "night-shift-orchestrator",
+  "version": "0.1.0",
+  "description": "Strict serial multi-agent CLI orchestrator for unattended overnight vibe coding",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.13.16"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.13.9",
+    "oxlint": "^1.90.0",
+    "typescript": "^7.0.2"
+  }
+}
