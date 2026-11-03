@@ -8,8 +8,11 @@ export interface AgentRunOptions {
   prompt: string;
   cwd: string;
   timeoutMs?: number;
+  killGraceMs?: number;
+  detached?: boolean;
   env?: Record<string, string>;
   appendSystemPrompt?: string;
+  extensions?: string[];
   model?: string;
 }
 

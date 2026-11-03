@@ -32,9 +32,24 @@ export class OutputRingBuffer {
   }
 }
 
-export async function killProcessTree(proc: Subprocess, signal: 'SIGTERM' | 'SIGKILL' = 'SIGTERM'): Promise<void> {
+export async function killProcessTree(
+  proc: Subprocess,
+  signal: 'SIGTERM' | 'SIGKILL' = 'SIGTERM',
+  detached: boolean = false
+): Promise<void> {
   const pid = proc.pid;
   if (!pid) return;
+
+  if (detached) {
+    // The child was spawned as a process-group leader. A negative PID targets
+    // the entire group, including grandchildren.
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // Fall through to the direct process kill below.
+    }
+  }
 
   try {
     // Attempt to kill child processes first (POSIX pkill)
@@ -56,15 +71,16 @@ export async function killProcessTree(proc: Subprocess, signal: 'SIGTERM' | 'SIG
 
 export async function killProcessTreeWithEscalation(
   proc: Subprocess,
-  gracePeriodMs: number = 3000
+  gracePeriodMs: number = 3000,
+  detached: boolean = false
 ): Promise<void> {
-  await killProcessTree(proc, 'SIGTERM');
+  await killProcessTree(proc, 'SIGTERM', detached);
 
   const timeoutPromise = new Promise<boolean>((resolve) => setTimeout(() => resolve(false), gracePeriodMs));
   const exitedPromise = proc.exited.then(() => true);
 
   const cleanExit = await Promise.race([timeoutPromise, exitedPromise]);
   if (!cleanExit) {
-    await killProcessTree(proc, 'SIGKILL');
+    await killProcessTree(proc, 'SIGKILL', detached);
   }
 }

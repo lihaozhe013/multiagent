@@ -1,8 +1,8 @@
 # Dify Local Agent Bridge - IM Delivery Implementation Plan
 
-Status: Proposed
+Status: Implemented (MVP); live Dify and Feishu validation pending
 Variant: Plan B - Dify triggers work only; results are pushed to IM, not back to Dify chat.
-Related: `docs/vision-and-architecture.md`
+Related: `docs/vision-and-architecture.md`, `docs/dify-bridge-usage.md`
 
 ## 1. Executive Summary
 
@@ -740,7 +740,7 @@ Behavior:
 - Each channel is attempted independently.
 - A failure in one channel does not block the others.
 - Each attempt is recorded in `bridge_notifications`.
-- Retries use exponential backoff: 1s, 4s, 16s, up to 3 attempts.
+- Retries use exponential backoff: 1s, then 4s, up to 3 attempts.
 - After all attempts fail, the channel is marked `FAILED` and the task's
   `notification_status` becomes `FAILED` if no channel succeeded, or `SENT` if at
   least one succeeded.
@@ -975,7 +975,8 @@ On `SIGTERM` or `SIGINT`:
 | `BRIDGE_NOTIFY_ON_SHUTDOWN` | `true` | no | Notify interrupted tasks |
 | `BRIDGE_RECOVER_NOTIFY` | `true` | no | Notify recovered tasks |
 | `BRIDGE_RETENTION_DAYS` | `30` | no | Audit retention; `0` keeps forever |
-| `BRIDGE_AGENT_ID` | `pi` | no | Agent adapter ID |
+| `BRIDGE_AGENT_ID` | `pi` | no | Agent adapter ID; only `pi` is supported in the MVP |
+| `BRIDGE_PI_BINARY` | `pi` | no | Pi executable name or absolute path |
 | `BRIDGE_PI_MODEL` | none | no | Optional Pi model override |
 | `BRIDGE_PI_EXTENSION` | `extensions/delivery.ts` | no | Delivery extension path |
 | `BRIDGE_SYSTEM_PROMPT` | built-in | no | Optional prompt override |

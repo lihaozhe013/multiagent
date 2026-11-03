@@ -108,3 +108,12 @@ bun run typecheck
 ```
 
 点击 **Decompose & Enqueue Batch**，系统会自动将清单解析为结构化 Tasks 并存入队列，夜间逐个串行执行并闭环验证。
+
+---
+
+## Dify Local Bridge
+
+An additive Dify trigger + IM delivery bridge lives under `src/bridge/`. It does
+not change the existing Night-Shift queue or dashboard. See
+[`docs/dify-bridge-usage.md`](docs/dify-bridge-usage.md) for configuration, the
+mock end-to-end test, and Dify/Feishu setup notes.

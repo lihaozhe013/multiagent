@@ -7,7 +7,7 @@ export class PiAdapter implements AgentAdapter {
   public readonly id = 'pi';
   public readonly name = 'Pi Coding Agent';
 
-  private activeProcesses = new Map<number, Subprocess>();
+  private activeProcesses = new Map<number, { proc: Subprocess; detached: boolean }>();
   private readonly executable: string;
 
   constructor(executable: string = 'pi') {
@@ -57,6 +57,10 @@ export class PiAdapter implements AgentAdapter {
       args.push('--append-system-prompt', options.appendSystemPrompt);
     }
 
+    for (const extension of options.extensions ?? []) {
+      args.push('--extension', extension);
+    }
+
     // Append the prompt at the end
     args.push(options.prompt);
 
@@ -70,6 +74,7 @@ export class PiAdapter implements AgentAdapter {
         },
         stdout: 'pipe',
         stderr: 'pipe',
+        detached: options.detached ?? false,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -82,7 +87,10 @@ export class PiAdapter implements AgentAdapter {
       };
     }
 
-    this.activeProcesses.set(options.runId, proc);
+    this.activeProcesses.set(options.runId, {
+      proc,
+      detached: options.detached ?? false
+    });
 
     let summaryText = '';
     const timeoutMs = options.timeoutMs ?? 20 * 60 * 1000; // 20m default
@@ -91,7 +99,7 @@ export class PiAdapter implements AgentAdapter {
     let timedOut = false;
     const timeoutTimer = setTimeout(() => {
       timedOut = true;
-      void killProcessTreeWithEscalation(proc);
+      void killProcessTreeWithEscalation(proc, options.killGraceMs, options.detached ?? false);
     }, timeoutMs);
 
     try {
@@ -183,9 +191,9 @@ export class PiAdapter implements AgentAdapter {
   }
 
   public async abort(runId: number): Promise<void> {
-    const proc = this.activeProcesses.get(runId);
-    if (proc) {
-      await killProcessTreeWithEscalation(proc);
+    const active = this.activeProcesses.get(runId);
+    if (active) {
+      await killProcessTreeWithEscalation(active.proc, undefined, active.detached);
       this.activeProcesses.delete(runId);
     }
   }

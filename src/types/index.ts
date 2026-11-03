@@ -1,6 +1,6 @@
 export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED' | 'FAILED';
 
-export type PipelineStage = 'CODER' | 'TEST' | 'REVIEW' | 'IDLE';
+export type PipelineStage = 'CODER' | 'TEST' | 'REVIEW' | 'AGENT' | 'IDLE';
 
 export type QueueRunState = 'IDLE' | 'RUNNING' | 'PAUSED';
 

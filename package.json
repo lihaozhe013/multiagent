@@ -14,7 +14,10 @@
     "test:e2e": "bun scripts/e2e-real-agent.ts",
     "test:e2e:opencode": "bun scripts/e2e-real-agent.ts --agent=opencode",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:bridge": "bun src/bridge/server.ts",
+    "test:bridge": "bun test src/bridge",
+    "test:bridge:mock": "bun scripts/bridge-mock.ts"
   },
   "dependencies": {
     "hono": "^4.13.16",
