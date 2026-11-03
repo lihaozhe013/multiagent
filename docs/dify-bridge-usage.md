@@ -1,7 +1,8 @@
 # Dify Local Bridge - Usage
 
 This document describes the implemented bridge service. The design and
-decision record is in `docs/dify-bridge-im-delivery-plan.md`.
+decision record is in `docs/dify-bridge-im-delivery-plan.md`, and the operational
+handoff is in `docs/dify-bridge-handoff.md`.
 
 ## What Is Implemented
 

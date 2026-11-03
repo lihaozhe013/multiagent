@@ -116,4 +116,5 @@ bun run typecheck
 An additive Dify trigger + IM delivery bridge lives under `src/bridge/`. It does
 not change the existing Night-Shift queue or dashboard. See
 [`docs/dify-bridge-usage.md`](docs/dify-bridge-usage.md) for configuration, the
-mock end-to-end test, and Dify/Feishu setup notes.
+mock end-to-end test, Dify/Feishu setup notes, and the handoff guide:
+[`docs/dify-bridge-handoff.md`](docs/dify-bridge-handoff.md).

@@ -2,7 +2,7 @@
 
 Status: Implemented (MVP); live Dify and Feishu validation pending
 Variant: Plan B - Dify triggers work only; results are pushed to IM, not back to Dify chat.
-Related: `docs/vision-and-architecture.md`, `docs/dify-bridge-usage.md`
+Related: `docs/vision-and-architecture.md`, `docs/dify-bridge-usage.md`, `docs/dify-bridge-handoff.md`
 
 ## 1. Executive Summary
 
