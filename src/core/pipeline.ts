@@ -185,10 +185,27 @@ export class PipelineRunner {
             (event) => this.emit(event, task.id, 'REVIEW')
           );
 
-          const isRejected = reviewResult.rawTail.includes('VERDICT: REJECT');
-          const rejectReason = isRejected
-            ? reviewResult.rawTail.slice(reviewResult.rawTail.indexOf('VERDICT: REJECT')).split('\n')[0]
-            : undefined;
+          // Extract all verdict declarations. The reviewer's final decision is the last occurrence.
+          const verdictMatches = [...reviewResult.rawTail.matchAll(/VERDICT:\s*(APPROVE|REJECT)\b/gi)];
+          let isRejected = false;
+          let rejectReason: string | undefined;
+
+          const lastMatch = verdictMatches.at(-1);
+          if (lastMatch?.[1]) {
+            const verdictType = lastMatch[1].toUpperCase();
+            if (verdictType === 'REJECT') {
+              isRejected = true;
+              const tailAfter = reviewResult.rawTail.slice((lastMatch.index ?? 0) + lastMatch[0].length);
+              const splitLines = tailAfter.split(/[\r\n"]+/);
+              const firstLine = (splitLines[0] ?? '').replace(/^[\s:-]+/, '').trim();
+              rejectReason = firstLine || 'Review agent rejected the code changes.';
+            } else {
+              isRejected = false;
+            }
+          } else if (reviewResult.exitCode !== 0) {
+            isRejected = true;
+            rejectReason = `Review agent failed to run: ${reviewResult.summary}`;
+          }
 
           this.queue.recordRun({
             taskId: task.id,

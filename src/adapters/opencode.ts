@@ -48,8 +48,9 @@ export class OpenCodeAdapter implements AgentAdapter {
       `T${options.taskId}-${options.stage}: ${options.title}`,
     ];
 
-    if (options.model) {
-      args.push('--model', options.model);
+    const model = options.model ?? process.env.OPENCODE_MODEL;
+    if (model) {
+      args.push('--model', model);
     }
 
     // Prompt message

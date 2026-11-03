@@ -11,6 +11,8 @@
     "build": "vite build",
     "start": "bun src/index.ts",
     "test": "bun test",
+    "test:e2e": "bun scripts/e2e-real-agent.ts",
+    "test:e2e:opencode": "bun scripts/e2e-real-agent.ts --agent=opencode",
     "lint": "oxlint",
     "typecheck": "tsc --noEmit"
   },

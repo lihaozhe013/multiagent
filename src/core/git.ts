@@ -27,6 +27,18 @@ export async function hasUncommittedChanges(cwd: string): Promise<boolean> {
 
 export async function getGitDiff(cwd: string): Promise<string> {
   try {
+    // Register untracked files with intent-to-add so git diff includes newly created files
+    try {
+      const procIntent = Bun.spawn(['git', 'add', '-N', '.'], {
+        cwd,
+        stdout: 'ignore',
+        stderr: 'ignore',
+      });
+      await procIntent.exited;
+    } catch {
+      // Ignore intent-to-add failure on empty/non-standard git repos
+    }
+
     // Both unstaged and staged changes
     const proc = Bun.spawn(['git', 'diff', 'HEAD'], {
       cwd,

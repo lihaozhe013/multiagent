@@ -48,8 +48,9 @@ export class PiAdapter implements AgentAdapter {
       `T${options.taskId}-${options.stage}: ${options.title}`,
     ];
 
-    if (options.model) {
-      args.push('--model', options.model);
+    const model = options.model ?? process.env.PI_MODEL;
+    if (model) {
+      args.push('--model', model);
     }
 
     if (options.appendSystemPrompt) {
