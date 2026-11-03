@@ -1,4 +1,4 @@
-# Dify Local Coding Agent Bridge - IM Delivery Implementation Plan
+# Dify Local Agent Bridge - IM Delivery Implementation Plan
 
 Status: Proposed
 Variant: Plan B - Dify triggers work only; results are pushed to IM, not back to Dify chat.
@@ -7,7 +7,7 @@ Related: `docs/vision-and-architecture.md`
 ## 1. Executive Summary
 
 This plan describes an additive bridge service that connects a Dify Chatflow to a
-locally running Pi Coding Agent. Dify submits a task through `POST /trigger` and
+locally running Pi agent. Dify submits a task through `POST /trigger` and
 immediately receives an acknowledgement. The bridge runs the agent asynchronously,
 enforces a hard timeout, and pushes the final result to one or more IM webhooks.
 
@@ -30,6 +30,7 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
 | Notifier abstraction | Generic webhook adapter, Feishu default | Avoids coupling to one IM vendor; Feishu is the first built-in |
 | Execution model | Independent bridge task per trigger | Matches the per-task supervisor and timeout semantics |
 | Existing pipeline | Not reused for bridge tasks | Its completion signal is Test/Review, not agent self-delivery |
+| Task domain | General workspace tasks, not coding-only | The bridge validates a workspace and does not assume git or code changes |
 | Completion signal | Pi `deliver_result` tool, plus supervisor fallback | Agent reports structured results; bridge guarantees a terminal event |
 | Persistence | New `bridge_tasks` tables in a separate SQLite database | Keeps the existing queue schema untouched |
 | Deployment shape | Standalone bridge entrypoint with public and internal servers | Public trigger and local-only delivery can bind different interfaces |
@@ -40,7 +41,8 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
 
 - Accept Dify tasks through an authenticated `POST /trigger`.
 - Return an acknowledgement immediately; never block Dify for the full agent run.
-- Run a Pi Coding Agent in a validated workspace directory.
+- Run a Pi agent in a validated workspace directory. The task may be coding-related
+  or a general workspace task.
 - Require the agent to submit a structured delivery through a dedicated tool.
 - Guarantee a terminal notification even when the agent crashes, exits without
   delivery, or exceeds the timeout.
@@ -55,8 +57,11 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
 - No changes to the existing `src/core/queue.ts`, `src/core/pipeline.ts`, or the
   React dashboard behavior.
 - No multi-agent routing in the MVP. The bridge targets `pi` only.
-- No automatic git commit in the MVP. The agent may edit files, but committing is
-  an explicit future option.
+- No git-specific behavior. The bridge does not inspect, stage, or commit changes,
+  and it does not require the workspace to be a git repository. If a commit is part
+  of the task, the task prompt must instruct the agent to do it.
+- No assumption that the task modifies files. `modified_files` may be empty for
+  general tasks.
 - No public exposure of the internal delivery endpoint.
 - No horizontal scaling. The bridge is designed for a single local host.
 
@@ -80,7 +85,7 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
                                                            | spawn
                                                            v
                                             +-----------------------------+
-                                            | Pi Coding Agent             |
+                                            | Pi Agent                    |
                                             | --mode json -p --no-approve |
                                             | --extension delivery.ts     |
                                             +--------------+--------------+
@@ -314,8 +319,8 @@ Request:
 | `task_id` | string | yes | Must match a live task |
 | `status` | string | yes | `COMPLETED` or `BLOCKED` |
 | `summary` | string | yes | Max 16 KiB |
-| `modified_files` | string[] | yes | Max 200 entries, each max 1024 characters |
-| `verification_passed` | boolean | yes | Self-reported by the agent |
+| `modified_files` | string[] | yes | Max 200 entries, each max 1024 characters; may be empty |
+| `verification_passed` | boolean | yes | Self-reported by the agent; true when no automated check is applicable, with a note |
 | `notes` | string | no | Max 8 KiB |
 
 Response `200 OK`:
@@ -515,15 +520,19 @@ The bridge appends a system-level instruction. The exact prompt is stored in
 Required content:
 
 - The agent is running unattended; do not ask the user questions.
-- Make the requested code changes in the current working directory.
-- Run relevant tests or checks when possible.
+- Perform the requested task in the current working directory. Make file changes if
+  the task requires them.
+- Run relevant tests or checks when applicable.
 - Do not declare completion in plain terminal text only.
 - Call `deliver_result` exactly once at the end of the task.
-- Use `status: "COMPLETED"` only when the requested work is complete and verified.
+- Use `status: "COMPLETED"` only when the requested work is complete and, where
+  applicable, verified. If no automated verification applies, set
+  `verification_passed: true` and explain why in `notes`.
 - Use `status: "BLOCKED"` when an unrecoverable dependency or environment issue
   prevents completion.
-- Include a concise summary, the modified file list, the verification result, and
-  any notes that a human needs to know.
+- Include a concise summary, the modified file list (empty if none), the
+  verification result, and any notes that a human needs to know.
+- Do not assume the workspace is a git repository.
 
 ### 8.3 Delivery Extension
 
@@ -768,6 +777,31 @@ Log tail:
 Markdown fences are only used in channels that render Markdown. The Feishu text
 notifier uses plain text and indents the log tail instead.
 
+### 9.6 Feishu Setup Checklist
+
+A Feishu custom bot is scoped to a group. It cannot send a direct message to an
+individual user unless a full Feishu app is created; that is out of scope for the
+MVP.
+
+1. Create a Feishu group for bridge notifications. Use a test group first.
+2. Open the group settings, choose Bots, and add a Custom Bot.
+3. Copy the webhook URL into `FEISHU_WEBHOOK_URL`.
+4. If signature verification is enabled, copy the secret into
+   `FEISHU_WEBHOOK_SECRET`.
+5. Send a test message with `curl` before connecting the bridge.
+6. Add the bot to the production group only after the test succeeds.
+
+Recommended security settings:
+
+- Enable signature verification and store the secret only in the bridge
+  environment.
+- Optionally add an IP allowlist if the host has a static egress IP.
+- Do not use keyword-only verification as the sole protection for a production
+  group.
+
+Feishu custom bots are subject to the tenant's bot rate limits. The notifier
+retries with backoff, and the replay endpoint covers temporary outages.
+
 ## 10. Security
 
 ### 10.1 Public Trigger Authentication
@@ -848,8 +882,14 @@ handler fast and makes backpressure explicit.
 - The unique index on `idempotency_key` is the final arbiter under races.
 
 Dify should pass a stable key when the installed version exposes one, such as the
-workflow run ID or message ID. If no stable key is available, the bridge still
-works, but Dify HTTP retries can create duplicate tasks.
+workflow run ID or message ID. Dify is not installed on the target host yet, so the
+bridge must not depend on a specific Dify variable. If no stable key is available,
+the bridge still works, but Dify HTTP retries can create duplicate tasks.
+
+An optional `BRIDGE_DEDUPE_WINDOW_MS` guard can suppress duplicate triggers with
+the same `conversation_id`, `user_id`, `relative_path`, and normalized
+`task_prompt` inside the window. It is disabled by default because it can also
+drop legitimate repeated requests.
 
 ### 11.3 First Delivery Wins
 
@@ -930,6 +970,7 @@ On `SIGTERM` or `SIGINT`:
 | `BRIDGE_KILL_GRACE_MS` | `3000` | no | SIGTERM to SIGKILL grace |
 | `BRIDGE_MAX_CONCURRENCY` | `1` | no | Concurrent agent runs |
 | `BRIDGE_MAX_QUEUE_DEPTH` | `50` | no | Reject triggers beyond this depth |
+| `BRIDGE_DEDUPE_WINDOW_MS` | `0` | no | Optional duplicate-trigger window; `0` disables it |
 | `BRIDGE_SHUTDOWN_GRACE_MS` | `10000` | no | Graceful shutdown wait |
 | `BRIDGE_NOTIFY_ON_SHUTDOWN` | `true` | no | Notify interrupted tasks |
 | `BRIDGE_RECOVER_NOTIFY` | `true` | no | Notify recovered tasks |
@@ -954,6 +995,7 @@ BRIDGE_TRIGGER_TOKEN=replace-with-a-long-random-token
 BRIDGE_DB_PATH=/home/lihaozhe/.night-shift/bridge.db
 BRIDGE_TASK_TIMEOUT_MS=900000
 BRIDGE_MAX_CONCURRENCY=1
+BRIDGE_DEDUPE_WINDOW_MS=0
 BRIDGE_NOTIFIERS=feishu
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
 FEISHU_WEBHOOK_SECRET=...
@@ -1004,7 +1046,7 @@ Return a short acknowledgement that includes the `task_id` from the HTTP node
 response:
 
 ```text
-Task accepted. The result will be pushed to IM when the coding agent finishes.
+Task accepted. The result will be pushed to IM when the agent finishes.
 Task ID: {{http_request.body.task_id}}
 ```
 
@@ -1023,7 +1065,7 @@ The final result is out-of-band.
 
 | Phase | Deliverable | Estimate |
 | --- | --- | --- |
-| P0 | Feishu webhook smoke test and Dify HTTP node proof of concept | 0.5 day |
+| P0 | Feishu webhook smoke test; Dify HTTP node proof of concept after Dify is installed | 0.5 day |
 | P1 | Bridge skeleton, public/internal servers, security, config | 1 day |
 | P2 | Task registry, scheduler, Pi agent runner, delivery endpoint | 1 day |
 | P3 | Pi delivery extension and supervisor fallback | 0.5 day |
@@ -1089,7 +1131,7 @@ configuration and IM bot approval delays.
 - [ ] Integration test with a fake agent and fake webhook.
 - [ ] Integration test for timeout fallback.
 - [ ] Integration test for process exit without delivery.
-- [ ] End-to-end test with a real Pi process in a temporary git repository.
+- [ ] End-to-end test with a real Pi process in a temporary workspace directory.
 
 ## 16. Test Plan
 
@@ -1118,7 +1160,7 @@ For Feishu, assert the JSON body without calling the real endpoint.
 
 ### 16.3 End-to-End Test
 
-1. Create a temporary git repository inside `WORKSPACE_BASE`.
+1. Create a temporary workspace directory inside `WORKSPACE_BASE`.
 2. Start the bridge with a test database and a local webhook.
 3. Send `POST /trigger` with a small task prompt.
 4. Run a real Pi process with the delivery extension.
@@ -1169,24 +1211,42 @@ For Feishu, assert the JSON body without calling the real endpoint.
 - Back up `bridge.db` if audit history matters. The database is not required for
   correctness after recovery, but it is useful for replay and diagnostics.
 
-## 20. Assumptions and Open Questions
+## 20. Confirmed Decisions and Remaining Details
 
-Assumptions:
+The following decisions are confirmed for the MVP.
 
-- The bridge runs on the same host as the Pi CLI and the target repositories.
-- The target IM channel is Feishu first, with a generic webhook abstraction.
-- The bridge may run concurrently with the existing Night-Shift WebUI and queue.
-- The default concurrency is `1` to protect a low-power host.
-- Automatic git commit is out of scope for the MVP.
+| Topic | Decision |
+| --- | --- |
+| Dify installation | Dify is not installed on the host yet. Bridge development and tests do not require a live Dify instance. The Dify-side proof of concept starts after Dify is installed manually. |
+| Git | The bridge has no git integration. It does not run `git status`, stage files, or create commits. If a task needs a commit, the task prompt must ask the agent to do it. |
+| Feishu target | The default notifier is a Feishu custom bot webhook. The concrete group and webhook URL are operational secrets added after the bot is created. |
+| Ports | The bridge runs as a standalone process. Public port `4100`, internal loopback port `4101`; the existing WebUI remains on `4000`. |
 
-Open questions to confirm before implementation:
+### 20.1 Idempotency Without a Dify Run ID
 
-1. Does the installed Dify version expose a stable workflow run ID or message ID
-   that can be used as `idempotency_key`?
-2. Should fallback notifications collect `git status --porcelain` to list modified
-   files even when the agent never delivered?
-3. Should the bridge auto-commit changes after a `COMPLETED` delivery, or leave
-   commits to the human/agent?
-4. Which Feishu group or chat should receive the default notifications?
-5. Is a single bridge process on ports `4100`/`4101` acceptable, or should it be
-   mounted into the existing `4000` server?
+Dify is not installed yet, so the bridge must not depend on a specific Dify
+variable. `idempotency_key` remains optional. Recommended Dify-side strategy once
+Dify is available:
+
+1. Generate a UUID in a Dify code node or store it in a conversation variable at
+   the start of the turn.
+2. Pass the same value as `idempotency_key`.
+3. Disable automatic HTTP retries unless the same key is reused.
+
+If no stable key is available, the bridge cannot distinguish a Dify retry from a
+legitimate repeated task. `BRIDGE_DEDUPE_WINDOW_MS` is an optional mitigation and
+is disabled by default.
+
+### 20.2 Feishu Operational Details
+
+A Feishu custom bot is group-scoped. The bridge only needs the webhook URL and the
+optional signing secret. Direct messages to an individual user require a full
+Feishu app with bot permissions, which is out of scope for the MVP. The setup
+checklist is in Section 9.6.
+
+### 20.3 Remaining Inputs
+
+- The Feishu group and webhook URL after the bot is created.
+- Whether to enable `BRIDGE_DEDUPE_WINDOW_MS` after observing Dify retry behavior.
+- Whether the host should run the bridge as systemd or Docker. This does not
+  affect the code.
