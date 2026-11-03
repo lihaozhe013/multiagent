@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { serveStatic } from 'hono/bun';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
 import { StorageEngine } from './core/store.ts';
 import { QueueController } from './core/queue.ts';
 import { Orchestrator } from './core/orchestrator.ts';
@@ -32,15 +33,20 @@ app.use('*', cors({
 const apiRouter = createApiRouter({ queue, orchestrator, decomposer });
 app.route('/api', apiRouter);
 
-// Root greeting / status
-app.get('/', (c) => {
-  return c.json({
-    name: 'Night-Shift Serial Multi-Agent Orchestrator',
-    status: 'running',
-    version: '0.1.0',
-    queueState: queue.getQueueState(),
+// Serve static React WebUI if built
+if (existsSync('./dist/index.html')) {
+  app.use('/*', serveStatic({ root: './dist' }));
+  app.get('*', serveStatic({ path: './dist/index.html' }));
+} else {
+  app.get('/', (c) => {
+    return c.json({
+      name: 'Night-Shift Serial Multi-Agent Orchestrator',
+      status: 'running',
+      version: '0.1.0',
+      queueState: queue.getQueueState(),
+    });
   });
-});
+}
 
 const port = Number(process.env.PORT ?? 4000);
 
@@ -49,7 +55,7 @@ const server = Bun.serve({
   fetch: app.fetch,
 });
 
-console.log(`[Night-Shift] Backend server running at http://localhost:${server.port}`);
+console.log(`[Night-Shift] Dashboard & Server running at http://localhost:${server.port}`);
 
 // Graceful shutdown handling
 const shutdown = () => {
