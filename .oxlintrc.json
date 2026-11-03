@@ -2,14 +2,17 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["typescript", "unicorn", "oxc"],
   "categories": {
-    "correctness": "deny",
-    "suspicious": "warn",
-    "perf": "warn",
-    "style": "warn"
+    "correctness": "deny"
   },
   "rules": {
     "typescript/no-explicit-any": "warn",
-    "no-console": "off"
+    "no-console": "off",
+    "unicorn/no-null": "off",
+    "no-magic-numbers": "off",
+    "sort-imports": "off",
+    "capitalized-comments": "off",
+    "func-style": "off",
+    "no-unused-vars": "warn"
   },
   "ignorePatterns": [
     "node_modules",
