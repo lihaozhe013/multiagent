@@ -1,8 +1,9 @@
 # Dify Local Bridge - Handoff
 
-Status: MVP implemented and committed
+Status: MVP implemented and committed. Feishu notifier replaced by DingTalk
+(2026-11-04).
 Implementation commit: `c88fb48`
-Last updated: 2026-11-03
+Last updated: 2026-11-04
 Scope: Plan B - Dify triggers local agent work; results are pushed to IM, not back
 to Dify chat.
 
@@ -42,17 +43,17 @@ Implemented:
 - Supervisor fallback for missing delivery, non-zero exit, timeout, shutdown, and
   restart recovery.
 - Generic JSON webhook notifier.
-- Feishu custom bot notifier with optional signature.
+- DingTalk custom group robot notifier with optional signature.
 - Notification retries, per-channel status, and manual replay.
 - Mock end-to-end test and unit/integration tests.
 
 Deferred by design or environment:
 
 - Live Dify installation and Chatflow validation.
-- Live Feishu tenant webhook validation.
+- Live DingTalk robot webhook validation.
 - Real Pi model run through the bridge.
 - Orphan process cleanup after an ungraceful bridge crash.
-- Feishu interactive card rendering.
+- DingTalk interactive card (actionCard/markdown) rendering.
 - Multi-agent routing.
 
 ## 3. Architecture
@@ -84,7 +85,7 @@ Pi calls deliver_result
 DeliveryService -> NotificationDispatcher
       |
       +--> Generic webhook
-      +--> Feishu custom bot
+      +--> DingTalk group robot
 ```
 
 If the agent exits without delivery or the timeout fires, the supervisor settles
@@ -107,11 +108,11 @@ the task and sends a fallback notification instead.
 | `src/bridge/notifier/index.ts` | Notifier factory, retries, fan-out, replay |
 | `src/bridge/notifier/format.ts` | Message formatting and truncation |
 | `src/bridge/notifier/generic.ts` | Generic JSON webhook |
-| `src/bridge/notifier/feishu.ts` | Feishu text payload and signature |
+| `src/bridge/notifier/dingtalk.ts` | DingTalk text payload and webhook signature |
 | `extensions/delivery.ts` | Pi custom tool that calls the internal endpoint |
-| `scripts/bridge-mock.ts` | Mock end-to-end test with no Dify, Feishu, or model |
+| `scripts/bridge-mock.ts` | Mock end-to-end test with no Dify, DingTalk, or model |
 | `.env.bridge.example` | Configuration template |
-| `docs/dify-bridge-usage.md` | Usage, Dify setup, and Feishu setup |
+| `docs/dify-bridge-usage.md` | Usage, Dify setup, and DingTalk setup |
 
 Modified shared files:
 
@@ -232,7 +233,7 @@ Required:
 | --- | --- |
 | `WORKSPACE_BASE` | Absolute workspace root for all tasks |
 | `BRIDGE_TRIGGER_TOKEN` | Public bearer token for `/trigger` and admin routes |
-| `FEISHU_WEBHOOK_URL` | Required when the Feishu notifier is enabled |
+| `DINGTALK_WEBHOOK_URL` | Required when the DingTalk notifier is enabled |
 
 Common optional values:
 
@@ -243,7 +244,7 @@ Common optional values:
 | `BRIDGE_DB_PATH` | `~/.night-shift/bridge.db` | SQLite path |
 | `BRIDGE_TASK_TIMEOUT_MS` | `900000` | 15-minute task timeout |
 | `BRIDGE_MAX_CONCURRENCY` | `1` | Concurrent agent runs |
-| `BRIDGE_NOTIFIERS` | `feishu` | Comma-separated `feishu,generic` |
+| `BRIDGE_NOTIFIERS` | `dingtalk` | Comma-separated `dingtalk,generic` |
 | `BRIDGE_PI_BINARY` | `pi` | Pi executable |
 | `BRIDGE_PI_EXTENSION` | project `extensions/delivery.ts` | Delivery tool path |
 | `BRIDGE_DEDUPE_WINDOW_MS` | `0` | Optional duplicate-trigger window |
@@ -271,7 +272,7 @@ cp .env.bridge.example .env
 
 ### 8.2 Run Mock Checks
 
-No Dify, Feishu, or model is required:
+No Dify, DingTalk, or model is required:
 
 ```bash
 bun run test:bridge
@@ -346,16 +347,16 @@ runner is tested with a fake executable.
 
 1. **Live Dify validation**: Dify is not installed. The Chatflow HTTP node,
    variable mapping, and real conversation flow are untested.
-2. **Live Feishu validation**: The payload and signature are tested locally, but
-   no real tenant webhook has received a message.
+2. **Live DingTalk validation**: The payload and signature are tested locally, but
+   no real robot webhook has received a message.
 3. **Real Pi model run**: The bridge spawn path, environment injection, extension
    argument, and timeout kill are tested with a fake Pi executable. A real model
    run is not validated.
 4. **Orphan process cleanup after bridge crash**: Restart recovery marks stale
    `RUNNING` tasks `INTERRUPTED` and notifies, but it does not search for and kill
    a process tree left by the previous bridge process.
-5. **Feishu card message**: The MVP sends plain text. Interactive cards are not
-   implemented.
+5. **DingTalk card message**: The MVP sends plain text (msgtype `text`).
+   Interactive actionCard/markdown messages are not implemented.
 6. **Dify DSL export**: No version-specific Chatflow DSL file is included. Setup
    is documented as manual node configuration.
 7. **Multi-agent routing**: The bridge supports `pi` only. The existing opencode
@@ -367,15 +368,16 @@ runner is tested with a fake executable.
 
 ## 11. Next Steps
 
-### Step 1: Validate Feishu
+### Step 1: Validate DingTalk
 
-1. Create a Feishu test group.
-2. Add a Custom Bot to the group.
-3. Copy the webhook URL into `FEISHU_WEBHOOK_URL`.
-4. If signature verification is enabled, copy the secret into
-   `FEISHU_WEBHOOK_SECRET`.
+1. Create a DingTalk test group.
+2. Group settings -> Bots -> Add Robot -> Custom Robot (via Webhook).
+3. Choose the signature (加签) security setting and copy the secret.
+4. Copy the webhook URL into `DINGTALK_WEBHOOK_URL` and the secret into
+   `DINGTALK_WEBHOOK_SECRET`.
 5. Start the bridge and trigger a small task.
-6. Confirm the group receives a text result.
+6. Confirm the group receives a text result. DingTalk rate-limits robots to 20
+   messages per minute.
 
 Acceptance: one `COMPLETED` message with summary, files, and verification status.
 
@@ -406,7 +408,7 @@ message arrives without a second trigger.
 ### Step 4: Optional Hardening
 
 - Add PID persistence and orphan-tree cleanup on startup.
-- Add Feishu interactive card formatting.
+- Add DingTalk interactive card (actionCard/markdown) formatting.
 - Add a Dify conversation variable or code-node UUID for `idempotency_key`.
 - Decide whether to enable `BRIDGE_DEDUPE_WINDOW_MS`.
 - Add a systemd unit or Dockerfile if the bridge will run permanently.
@@ -434,7 +436,7 @@ tokens or webhook URLs.
 - Keep `BRIDGE_INTERNAL_PORT` on loopback.
 - Do not pass the public trigger token to the agent process.
 - The internal delivery token is passed to the agent only through its environment.
-- Feishu webhook URLs and secrets belong in the environment file, not in code.
+- DingTalk webhook URLs and secrets belong in the environment file, not in code.
 - Path validation uses `realpath`, so symlink escapes are rejected.
 - Request bodies are limited to 1 MiB on the public server and 256 KiB on the
   internal server.
@@ -462,7 +464,7 @@ tokens or webhook URLs.
 - [x] Bridge unit and integration tests pass.
 - [x] Mock end-to-end test passes.
 - [x] Entrypoint smoke test passes.
-- [ ] Live Feishu webhook validated.
+- [ ] Live DingTalk webhook validated.
 - [ ] Real Pi model run validated.
 - [ ] Live Dify Chatflow validated.
 - [ ] Optional orphan-process cleanup implemented.

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { NotificationEvent } from './types.ts';
-import { FeishuNotifier, buildFeishuSignature } from './notifier/feishu.ts';
+import { DingTalkNotifier, buildDingtalkSignature } from './notifier/dingtalk.ts';
 import { GenericWebhookNotifier } from './notifier/generic.ts';
 
 const event: NotificationEvent = {
@@ -52,22 +52,52 @@ describe('HTTP notifiers', () => {
     expect(body.modified_files).toEqual(['src/a.ts']);
   });
 
-  it('sends a Feishu text payload with a signature', async () => {
+  it('sends a DingTalk text payload with a signed URL', async () => {
     received = [];
-    const notifier = new FeishuNotifier(
-      `http://127.0.0.1:${server.port}/feishu`,
-      'feishu-secret'
+    const requestedUrls: string[] = [];
+    const notifier = new DingTalkNotifier(
+      `http://127.0.0.1:${server.port}/dingtalk?access_token=token`,
+      'dingtalk-secret'
     );
-    await notifier.send(event);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      requestedUrls.push(String(input));
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    try {
+      await notifier.send(event);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestedUrls).toHaveLength(1);
+    const url = new URL(requestedUrls[0]!);
+    const timestamp = url.searchParams.get('timestamp');
+    const sign = url.searchParams.get('sign');
+    expect(timestamp).toBeTruthy();
+    expect(sign).toBe(buildDingtalkSignature(timestamp!, 'dingtalk-secret'));
 
     expect(received).toHaveLength(1);
     const body = received[0]!;
-    expect(body.msg_type).toBe('text');
-    expect(body.timestamp).toBeTypeOf('string');
-    expect(body.sign).toBe(buildFeishuSignature(String(body.timestamp), 'feishu-secret'));
+    expect(body.msgtype).toBe('text');
+    const text = (body.text as { content?: string })?.content ?? '';
+    expect(text).toContain('[Night-Shift] COMPLETED');
+    expect(text).toContain('HTTP notifier test');
+  });
 
-    const content = body.content as { text?: string };
-    expect(content.text).toContain('[Night-Shift] COMPLETED');
-    expect(content.text).toContain('HTTP notifier test');
+  it('fails when DingTalk replies with a non-zero errcode', async () => {
+    const failingServer = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: async () => Response.json({ errcode: 310000, errmsg: 'keywords not in content' })
+    });
+    try {
+      const notifier = new DingTalkNotifier(`http://127.0.0.1:${failingServer.port}/dingtalk`);
+      await expect(async () => {
+        await notifier.send(event);
+      }).toThrow(/errcode 310000/);
+    } finally {
+      failingServer.stop();
+    }
   });
 });

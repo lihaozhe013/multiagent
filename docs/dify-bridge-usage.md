@@ -18,8 +18,8 @@ handoff is in `docs/dify-bridge-handoff.md`.
   tool extension.
 - Supervisor fallback for missing delivery, non-zero exits, timeouts, shutdown,
   and restart recovery.
-- Generic JSON webhook notifier and Feishu custom bot notifier with optional
-  signature.
+- Generic JSON webhook notifier and DingTalk custom group robot notifier with
+  optional signature.
 - Notification retries, per-channel status, and replay through the admin API.
 - Mock end-to-end test that covers happy path, missing-delivery fallback, timeout
   fallback, authentication, and internal endpoint isolation.
@@ -27,8 +27,8 @@ handoff is in `docs/dify-bridge-handoff.md`.
 ## What Is Not Yet Validated
 
 - A live Dify installation and Chatflow HTTP node. Dify is intentionally deferred.
-- A real Feishu tenant webhook. The payload and signature code is implemented but
-  only tested with local assertions.
+- A live DingTalk robot webhook. The payload and signature code is implemented
+  but only tested with local assertions.
 - A real Pi model run through the bridge. The delivery extension is implemented
   and the mock e2e uses a stub agent.
 - Killing orphan Pi processes after an ungraceful bridge crash. Restart recovery
@@ -44,7 +44,7 @@ Required:
 ```dotenv
 WORKSPACE_BASE=/home/you/dev
 BRIDGE_TRIGGER_TOKEN=replace-with-a-long-random-token
-FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
+DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=...
 ```
 
 Useful optional values:
@@ -55,7 +55,7 @@ BRIDGE_INTERNAL_PORT=4101
 BRIDGE_DB_PATH=~/.night-shift/bridge.db
 BRIDGE_TASK_TIMEOUT_MS=900000
 BRIDGE_MAX_CONCURRENCY=1
-BRIDGE_NOTIFIERS=feishu
+BRIDGE_NOTIFIERS=dingtalk
 BRIDGE_PI_BINARY=pi
 BRIDGE_PI_EXTENSION=/absolute/path/to/extensions/delivery.ts
 ```
@@ -65,7 +65,7 @@ non-loopback internal bind address.
 
 ## Run The Mock Test
 
-The mock test does not need Dify, Feishu, or a model:
+The mock test does not need Dify, DingTalk, or a model:
 
 ```bash
 bun run test:bridge:mock
@@ -149,19 +149,29 @@ The HTTP Request node should send `sys.query` as `task_prompt`,
 short timeout because the bridge returns immediately. Do not add a callback node
 to `/v1/chat-messages`; results are pushed to IM.
 
-## Feishu Bot
+## DingTalk Robot
 
-The default notifier is a Feishu custom bot in a group:
+The default notifier is a DingTalk custom robot (自定义机器人) in a group:
 
 1. Create a test group.
-2. Group settings -> Bots -> Add Custom Bot.
-3. Copy the webhook URL to `FEISHU_WEBHOOK_URL`.
-4. If signature verification is enabled, copy the secret to
-   `FEISHU_WEBHOOK_SECRET`.
-5. Send a test message before wiring the bridge.
+2. Group settings -> Bots (机器人) -> Add Robot -> Custom Robot (通过Webhook接入).
+3. Choose a security setting. The bridge supports signature (加签); custom
+   keyword and IP allowlist also work (with a keyword, every notification must
+   contain the keyword).
+4. Copy the webhook URL to `DINGTALK_WEBHOOK_URL`.
+5. If signature is enabled, copy the secret to `DINGTALK_WEBHOOK_SECRET`. The
+   bridge signs each request with `HMAC-SHA256` over
+   `${timestamp_ms}\n${secret}` and appends `timestamp` and `sign` to the URL.
+6. Send a test message before wiring the bridge.
 
-A custom bot posts only to its group. Direct messages require a full Feishu app
-and are outside the current scope.
+A custom robot posts only to its group. DingTalk rate-limits each robot to 20
+messages per minute; the bridge retries failed sends three times.
+
+```dotenv
+BRIDGE_NOTIFIERS=dingtalk
+DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=...
+DINGTALK_WEBHOOK_SECRET=SECxxxxxxxxxxxxxxxx
+```
 
 ## Operational Notes
 

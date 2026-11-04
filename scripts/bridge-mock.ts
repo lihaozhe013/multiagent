@@ -1,7 +1,7 @@
 /**
  * Mock end-to-end check for the Dify bridge.
  *
- * This script does not call Dify, Feishu, or a real model. It starts the bridge
+ * This script does not call Dify, DingTalk, or a real model. It starts the bridge
  * with an in-memory database and a stub agent, then exercises the public trigger,
  * the internal delivery endpoint, and a generic webhook receiver.
  */

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import type { NotificationEvent } from './types.ts';
 import {
-  buildFeishuPayload,
-  buildFeishuSignature
-} from './notifier/feishu.ts';
+  buildDingtalkPayload,
+  buildDingtalkSignature,
+  buildDingtalkWebhookUrl
+} from './notifier/dingtalk.ts';
 import {
   formatDuration,
   formatNotificationText,
@@ -68,24 +69,33 @@ describe('notification formatting', () => {
   });
 });
 
-describe('feishu payload', () => {
+describe('dingtalk payload', () => {
   it('builds a deterministic signature', () => {
-    expect(buildFeishuSignature('1700000000', 'secret')).toBe(
-      'fiWS2+gh28DOydAv7hzONH/mDn9+b1Y4Y5ivXWXy8vA='
+    // base64(HMAC-SHA256(key = 'secret', data = '1700000000\nsecret'))
+    expect(buildDingtalkSignature('1700000000', 'secret')).toBe(
+      'vli3/GfD4kJTUyxxBD82mmmq4rnrfhhcCjvn2rP9x7o='
     );
   });
 
-  it('includes signature fields when a secret is configured', () => {
-    const payload = buildFeishuPayload('hello', 'secret', '1700000000');
-    expect(payload.msg_type).toBe('text');
-    expect(payload.content.text).toBe('hello');
-    expect(payload.timestamp).toBe('1700000000');
-    expect(payload.sign).toBe('fiWS2+gh28DOydAv7hzONH/mDn9+b1Y4Y5ivXWXy8vA=');
+  it('appends timestamp and sign query parameters to the webhook URL', () => {
+    const url = buildDingtalkWebhookUrl(
+      'https://oapi.dingtalk.com/robot/send?access_token=token',
+      'secret',
+      '1700000000'
+    );
+    expect(url).toBe(
+      'https://oapi.dingtalk.com/robot/send?access_token=token&timestamp=1700000000&sign=vli3%2FGfD4kJTUyxxBD82mmmq4rnrfhhcCjvn2rP9x7o%3D'
+    );
   });
 
-  it('omits signature fields when no secret is configured', () => {
-    const payload = buildFeishuPayload('hello');
-    expect(payload.timestamp).toBeUndefined();
-    expect(payload.sign).toBeUndefined();
+  it('returns the webhook URL unchanged when no secret is configured', () => {
+    const url = buildDingtalkWebhookUrl('https://oapi.dingtalk.com/robot/send?access_token=token');
+    expect(url).toBe('https://oapi.dingtalk.com/robot/send?access_token=token');
+  });
+
+  it('builds a text payload', () => {
+    const payload = buildDingtalkPayload('hello');
+    expect(payload.msgtype).toBe('text');
+    expect(payload.text.content).toBe('hello');
   });
 });

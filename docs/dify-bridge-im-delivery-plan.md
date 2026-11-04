@@ -1,6 +1,7 @@
 # Dify Local Agent Bridge - IM Delivery Implementation Plan
 
-Status: Implemented (MVP); live Dify and Feishu validation pending
+Status: Implemented (MVP); live Dify and DingTalk validation pending.
+Update 2026-11-04: the default IM channel changed from Feishu to DingTalk.
 Variant: Plan B - Dify triggers work only; results are pushed to IM, not back to Dify chat.
 Related: `docs/vision-and-architecture.md`, `docs/dify-bridge-usage.md`, `docs/dify-bridge-handoff.md`
 
@@ -27,7 +28,7 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
 | --- | --- | --- |
 | Dify callback path | No `/v1/chat-messages` callback | Avoids re-trigger loops and Dify-side LLM cost |
 | Result delivery | IM webhook | Deterministic, asynchronous, user-visible without page refresh |
-| Notifier abstraction | Generic webhook adapter, Feishu default | Avoids coupling to one IM vendor; Feishu is the first built-in |
+| Notifier abstraction | Generic webhook adapter, DingTalk default | Avoids coupling to one IM vendor; DingTalk is the first built-in |
 | Execution model | Independent bridge task per trigger | Matches the per-task supervisor and timeout semantics |
 | Existing pipeline | Not reused for bridge tasks | Its completion signal is Test/Review, not agent self-delivery |
 | Task domain | General workspace tasks, not coding-only | The bridge validates a workspace and does not assume git or code changes |
@@ -46,7 +47,7 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
 - Require the agent to submit a structured delivery through a dedicated tool.
 - Guarantee a terminal notification even when the agent crashes, exits without
   delivery, or exceeds the timeout.
-- Push results to a generic webhook and to Feishu by default.
+- Push results to a generic webhook and to DingTalk by default.
 - Keep the implementation safe against path traversal, spoofed delivery calls,
   unbounded payloads, and duplicate notifications.
 - Recover cleanly from bridge restarts without silently losing tasks.
@@ -102,7 +103,7 @@ adapter, watchdog, and output ring buffer, but runs its own task lifecycle.
                                                            v
                                             +-----------------------------+
                                             | IM Notifier Adapters        |
-                                            | generic webhook + Feishu    |
+                                            | generic webhook + DingTalk  |
                                             +-----------------------------+
 ```
 
@@ -141,7 +142,7 @@ src/bridge/
   notifier/
     index.ts                Notifier interface and factory
     generic.ts              Generic JSON webhook notifier
-    feishu.ts               Feishu custom bot notifier
+    dingtalk.ts             DingTalk custom group robot notifier
     format.ts               Shared message formatting and truncation
   db/
     schema.ts               CREATE TABLE IF NOT EXISTS statements
@@ -387,7 +388,7 @@ Response:
   "uptime_seconds": 123,
   "running_tasks": 1,
   "queued_tasks": 0,
-  "notifier_channels": ["feishu"]
+  "notifier_channels": ["dingtalk"]
 }
 ```
 
@@ -695,30 +696,37 @@ Body:
 The generic adapter sends one POST per event. It does not template arbitrary user
 input into the URL. The URL comes only from configuration.
 
-### 9.3 Feishu Notifier
+### 9.3 DingTalk Notifier
 
-The default channel is a Feishu custom bot webhook.
+The default channel is a DingTalk custom group robot webhook (自定义机器人,
+Webhook 接入).
 
-`POST <FEISHU_WEBHOOK_URL>`
+`POST <DINGTALK_WEBHOOK_URL>`
 
-MVP payload uses `msg_type: "text"` for reliability:
+MVP payload uses `msgtype: "text"` for reliability:
 
 ```json
 {
-  "msg_type": "text",
-  "content": {
-    "text": "[Night-Shift] COMPLETED\nTask: uuid-v4\nUser: dify-user-id\n\nSummary:\n...\n\nFiles:\n- src/feature.ts\n\nVerification: PASSED\n\nNotes:\n..."
+  "msgtype": "text",
+  "text": {
+    "content": "[Night-Shift] COMPLETED\nTask: uuid-v4\nUser: dify-user-id\n\nSummary:\n...\n\nFiles:\n- src/feature.ts\n\nVerification: PASSED\n\nNotes:\n..."
   }
 }
 ```
 
-If `FEISHU_WEBHOOK_SECRET` is configured, add `timestamp` and `sign` according to
-the Feishu custom bot signature specification. The signature is computed with
-HMAC-SHA256 over the documented string-to-sign and encoded as Base64.
+If `DINGTALK_WEBHOOK_SECRET` is configured, append `timestamp` and `sign` query
+parameters to the webhook URL per the DingTalk custom robot signature
+specification (security setting 加签):
 
-Optional future enhancement: an interactive card with a colored header and
-`lark_md` sections. Keep text as the default until the card schema is validated
-against the tenant's Feishu client version.
+```text
+string_to_sign = "<timestamp_ms>\n<secret>"
+sign           = base64(HMAC-SHA256(key = secret, message = string_to_sign))
+url            = webhook + "&timestamp=<timestamp_ms>&sign=<urlencode(sign)>"
+```
+
+Optional future enhancement: an interactive actionCard or markdown message with
+a colored header. Keep plain text as the default until the card schema is
+validated against a live robot.
 
 Message limits:
 
@@ -732,7 +740,7 @@ Message limits:
 `BRIDGE_NOTIFIERS` is a comma-separated list. Example:
 
 ```text
-BRIDGE_NOTIFIERS=feishu,generic
+BRIDGE_NOTIFIERS=dingtalk,generic
 ```
 
 Behavior:
@@ -774,20 +782,20 @@ Log tail:
 ```                              # fallback messages only
 ````
 
-Markdown fences are only used in channels that render Markdown. The Feishu text
+Markdown fences are only used in channels that render Markdown. The DingTalk text
 notifier uses plain text and indents the log tail instead.
 
-### 9.6 Feishu Setup Checklist
+### 9.6 DingTalk Setup Checklist
 
-A Feishu custom bot is scoped to a group. It cannot send a direct message to an
-individual user unless a full Feishu app is created; that is out of scope for the
-MVP.
+A DingTalk custom robot is scoped to a group. It cannot send a direct message to
+an individual user; that requires a full DingTalk app, which is out of scope for
+the MVP.
 
-1. Create a Feishu group for bridge notifications. Use a test group first.
-2. Open the group settings, choose Bots, and add a Custom Bot.
-3. Copy the webhook URL into `FEISHU_WEBHOOK_URL`.
+1. Create a DingTalk group for bridge notifications. Use a test group first.
+2. Open the group settings, choose Bots, and add a Custom Robot (via Webhook).
+3. Copy the webhook URL into `DINGTALK_WEBHOOK_URL`.
 4. If signature verification is enabled, copy the secret into
-   `FEISHU_WEBHOOK_SECRET`.
+   `DINGTALK_WEBHOOK_SECRET`.
 5. Send a test message with `curl` before connecting the bridge.
 6. Add the bot to the production group only after the test succeeds.
 
@@ -799,7 +807,7 @@ Recommended security settings:
 - Do not use keyword-only verification as the sole protection for a production
   group.
 
-Feishu custom bots are subject to the tenant's bot rate limits. The notifier
+DingTalk robots are limited to 20 messages per minute. The notifier
 retries with backoff, and the replay endpoint covers temporary outages.
 
 ## 10. Security
@@ -855,7 +863,7 @@ off by default.
 
 - IM webhook URLs and secrets come from environment variables only.
 - The bridge never accepts a webhook URL from a trigger request.
-- Feishu signatures are recomputed per request using the current timestamp.
+- DingTalk signatures are recomputed per request using the current timestamp.
 - Generic webhook tokens are sent only to the configured destination.
 
 ## 11. Reliability and Concurrency
@@ -980,9 +988,9 @@ On `SIGTERM` or `SIGINT`:
 | `BRIDGE_PI_MODEL` | none | no | Optional Pi model override |
 | `BRIDGE_PI_EXTENSION` | `extensions/delivery.ts` | no | Delivery extension path |
 | `BRIDGE_SYSTEM_PROMPT` | built-in | no | Optional prompt override |
-| `BRIDGE_NOTIFIERS` | `feishu` | no | Comma-separated notifier channels |
-| `FEISHU_WEBHOOK_URL` | none | if Feishu | Feishu custom bot URL |
-| `FEISHU_WEBHOOK_SECRET` | none | no | Feishu signature secret |
+| `BRIDGE_NOTIFIERS` | `dingtalk` | no | Comma-separated notifier channels |
+| `DINGTALK_WEBHOOK_URL` | none | if DingTalk | DingTalk robot webhook URL |
+| `DINGTALK_WEBHOOK_SECRET` | none | no | DingTalk signature secret |
 | `GENERIC_WEBHOOK_URL` | none | if generic | Generic JSON webhook URL |
 | `GENERIC_WEBHOOK_TOKEN` | none | no | Generic webhook bearer token |
 
@@ -997,9 +1005,9 @@ BRIDGE_DB_PATH=/home/lihaozhe/.night-shift/bridge.db
 BRIDGE_TASK_TIMEOUT_MS=900000
 BRIDGE_MAX_CONCURRENCY=1
 BRIDGE_DEDUPE_WINDOW_MS=0
-BRIDGE_NOTIFIERS=feishu
-FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
-FEISHU_WEBHOOK_SECRET=...
+BRIDGE_NOTIFIERS=dingtalk
+DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=...
+DINGTALK_WEBHOOK_SECRET=...
 ```
 
 ## 13. Dify-Side Setup
@@ -1066,11 +1074,11 @@ The final result is out-of-band.
 
 | Phase | Deliverable | Estimate |
 | --- | --- | --- |
-| P0 | Feishu webhook smoke test; Dify HTTP node proof of concept after Dify is installed | 0.5 day |
+| P0 | DingTalk webhook smoke test; Dify HTTP node proof of concept after Dify is installed | 0.5 day |
 | P1 | Bridge skeleton, public/internal servers, security, config | 1 day |
 | P2 | Task registry, scheduler, Pi agent runner, delivery endpoint | 1 day |
 | P3 | Pi delivery extension and supervisor fallback | 0.5 day |
-| P4 | Feishu + generic notifier layer, formatting, retries | 0.5 day |
+| P4 | DingTalk + generic notifier layer, formatting, retries | 0.5 day |
 | P5 | Persistence, recovery, idempotency, admin routes | 0.5 day |
 | P6 | Tests, documentation, deployment notes | 1 day |
 
@@ -1112,7 +1120,7 @@ configuration and IM bot approval delays.
 
 - [ ] Define the `Notifier` interface.
 - [ ] Implement the generic webhook adapter.
-- [ ] Implement the Feishu text adapter with optional signature.
+- [ ] Implement the DingTalk text adapter with optional signature.
 - [ ] Add message truncation and file-list limits.
 - [ ] Add per-channel retries and persistence.
 - [ ] Add replay support.
@@ -1128,7 +1136,7 @@ configuration and IM bot approval delays.
 
 - [ ] Unit tests for path guard and payload validation.
 - [ ] Unit tests for first-wins settlement.
-- [ ] Unit tests for Feishu payload and signature.
+- [ ] Unit tests for DingTalk payload and signature.
 - [ ] Integration test with a fake agent and fake webhook.
 - [ ] Integration test for timeout fallback.
 - [ ] Integration test for process exit without delivery.
@@ -1144,7 +1152,7 @@ configuration and IM bot approval delays.
 - `registry.test.ts`: state transitions, idempotency key uniqueness.
 - `notifier-format.test.ts`: message truncation, file-list limits, fallback
   formatting.
-- `feishu.test.ts`: text payload shape, signature generation.
+- `dingtalk.test.ts`: text payload shape, signature generation.
 
 ### 16.2 Integration Tests
 
@@ -1157,7 +1165,7 @@ Use a fake agent script that reads the bridge environment and performs one of:
 - Deliver twice.
 
 Use a local HTTP server as the generic webhook and assert the received payload.
-For Feishu, assert the JSON body without calling the real endpoint.
+For DingTalk, assert the JSON body and signed URL without calling the real endpoint.
 
 ### 16.3 End-to-End Test
 
@@ -1198,7 +1206,7 @@ For Feishu, assert the JSON body without calling the real endpoint.
 | Path traversal | Unauthorized file access | `realpath` plus separator-aware prefix check |
 | Internal endpoint exposed publicly | Spoofed delivery | Separate loopback server and internal token |
 | Oversized logs or summaries | IM rejection or context overflow | Hard truncation at formatting time |
-| Feishu payload schema changes | Notification failure | Text payload first; card support behind a config flag |
+| DingTalk payload schema changes | Notification failure | Text payload first; card support behind a config flag |
 
 ## 19. Deployment Notes
 
@@ -1220,7 +1228,7 @@ The following decisions are confirmed for the MVP.
 | --- | --- |
 | Dify installation | Dify is not installed on the host yet. Bridge development and tests do not require a live Dify instance. The Dify-side proof of concept starts after Dify is installed manually. |
 | Git | The bridge has no git integration. It does not run `git status`, stage files, or create commits. If a task needs a commit, the task prompt must ask the agent to do it. |
-| Feishu target | The default notifier is a Feishu custom bot webhook. The concrete group and webhook URL are operational secrets added after the bot is created. |
+| DingTalk target | The default notifier is a DingTalk custom robot webhook. The concrete group and webhook URL are operational secrets added after the robot is created. |
 | Ports | The bridge runs as a standalone process. Public port `4100`, internal loopback port `4101`; the existing WebUI remains on `4000`. |
 
 ### 20.1 Idempotency Without a Dify Run ID
@@ -1238,16 +1246,16 @@ If no stable key is available, the bridge cannot distinguish a Dify retry from a
 legitimate repeated task. `BRIDGE_DEDUPE_WINDOW_MS` is an optional mitigation and
 is disabled by default.
 
-### 20.2 Feishu Operational Details
+### 20.2 DingTalk Operational Details
 
-A Feishu custom bot is group-scoped. The bridge only needs the webhook URL and the
+A DingTalk custom robot is group-scoped. The bridge only needs the webhook URL and the
 optional signing secret. Direct messages to an individual user require a full
-Feishu app with bot permissions, which is out of scope for the MVP. The setup
+DingTalk app with robot permissions, which is out of scope for the MVP. The setup
 checklist is in Section 9.6.
 
 ### 20.3 Remaining Inputs
 
-- The Feishu group and webhook URL after the bot is created.
+- The DingTalk group and webhook URL after the robot is created.
 - Whether to enable `BRIDGE_DEDUPE_WINDOW_MS` after observing Dify retry behavior.
 - Whether the host should run the bridge as systemd or Docker. This does not
   affect the code.

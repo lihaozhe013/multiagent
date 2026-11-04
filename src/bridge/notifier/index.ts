@@ -3,10 +3,10 @@ import type { BridgeRepository } from '../db/queries.ts';
 import type { BridgeTask, NotificationStatus, Notifier } from '../types.ts';
 import { errorMessage, logError, logInfo, logWarn } from '../logging.ts';
 import { taskToNotificationEvent } from './format.ts';
-import { FeishuNotifier } from './feishu.ts';
+import { DingTalkNotifier } from './dingtalk.ts';
 import { GenericWebhookNotifier } from './generic.ts';
 
-export { FeishuNotifier, GenericWebhookNotifier };
+export { DingTalkNotifier, GenericWebhookNotifier };
 export { formatNotificationText, taskToNotificationEvent } from './format.ts';
 
 const MAX_NOTIFICATION_ATTEMPTS = 3;
@@ -19,11 +19,11 @@ export function createNotifiers(config: BridgeConfig): Notifier[] {
   const notifiers: Notifier[] = [];
 
   for (const channel of config.notifiers) {
-    if (channel === 'feishu') {
-      if (!config.feishuWebhookUrl) {
-        throw new Error('Feishu notifier requires FEISHU_WEBHOOK_URL');
+    if (channel === 'dingtalk') {
+      if (!config.dingtalkWebhookUrl) {
+        throw new Error('DINGTALK_WEBHOOK_URL is required when the dingtalk notifier is enabled');
       }
-      notifiers.push(new FeishuNotifier(config.feishuWebhookUrl, config.feishuWebhookSecret));
+      notifiers.push(new DingTalkNotifier(config.dingtalkWebhookUrl, config.dingtalkWebhookSecret));
     } else if (channel === 'generic') {
       if (!config.genericWebhookUrl) {
         throw new Error('Generic notifier requires GENERIC_WEBHOOK_URL');

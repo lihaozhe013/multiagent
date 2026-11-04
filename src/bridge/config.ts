@@ -27,8 +27,8 @@ export interface BridgeConfig {
   piExtension: string;
   systemPrompt: string;
   notifiers: string[];
-  feishuWebhookUrl?: string;
-  feishuWebhookSecret?: string;
+  dingtalkWebhookUrl?: string;
+  dingtalkWebhookSecret?: string;
   genericWebhookUrl?: string;
   genericWebhookToken?: string;
   notifyRetryDelaysMs: number[];
@@ -87,7 +87,7 @@ function resolveOptionalText(value: string | undefined): string | undefined {
 }
 
 function parseNotifiers(env: Record<string, string | undefined>): string[] {
-  const raw = env.BRIDGE_NOTIFIERS?.trim() || 'feishu';
+  const raw = env.BRIDGE_NOTIFIERS?.trim() || 'dingtalk';
   const channels = raw
     .split(',')
     .map((item) => item.trim().toLowerCase())
@@ -98,7 +98,7 @@ function parseNotifiers(env: Record<string, string | undefined>): string[] {
   }
 
   for (const channel of channels) {
-    if (channel !== 'feishu' && channel !== 'generic') {
+    if (channel !== 'dingtalk' && channel !== 'generic') {
       throw new Error(`Unsupported notifier channel: ${channel}`);
     }
   }
@@ -129,11 +129,11 @@ export function loadBridgeConfig(
   }
 
   const notifiers = parseNotifiers(env);
-  const feishuWebhookUrl = optionalString(env, 'FEISHU_WEBHOOK_URL');
+  const dingtalkWebhookUrl = optionalString(env, 'DINGTALK_WEBHOOK_URL');
   const genericWebhookUrl = optionalString(env, 'GENERIC_WEBHOOK_URL');
 
-  if (notifiers.includes('feishu') && !feishuWebhookUrl) {
-    throw new Error('FEISHU_WEBHOOK_URL is required when the feishu notifier is enabled');
+  if (notifiers.includes('dingtalk') && !dingtalkWebhookUrl) {
+    throw new Error('DINGTALK_WEBHOOK_URL is required when the dingtalk notifier is enabled');
   }
   if (notifiers.includes('generic') && !genericWebhookUrl) {
     throw new Error('GENERIC_WEBHOOK_URL is required when the generic notifier is enabled');
@@ -178,9 +178,9 @@ export function loadBridgeConfig(
     piExtension,
     systemPrompt,
     notifiers,
-    ...(feishuWebhookUrl ? { feishuWebhookUrl } : {}),
-    ...(optionalString(env, 'FEISHU_WEBHOOK_SECRET')
-      ? { feishuWebhookSecret: optionalString(env, 'FEISHU_WEBHOOK_SECRET') }
+    ...(dingtalkWebhookUrl ? { dingtalkWebhookUrl } : {}),
+    ...(optionalString(env, 'DINGTALK_WEBHOOK_SECRET')
+      ? { dingtalkWebhookSecret: optionalString(env, 'DINGTALK_WEBHOOK_SECRET') }
       : {}),
     ...(genericWebhookUrl ? { genericWebhookUrl } : {}),
     ...(optionalString(env, 'GENERIC_WEBHOOK_TOKEN')

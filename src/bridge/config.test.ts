@@ -34,6 +34,29 @@ describe('bridge config', () => {
     expect(() => loadBridgeConfig(env)).toThrow('GENERIC_WEBHOOK_URL');
   });
 
+  it('defaults to the dingtalk notifier', () => {
+    const env = baseEnv();
+    env.BRIDGE_NOTIFIERS = 'dingtalk';
+    env.DINGTALK_WEBHOOK_URL = 'https://oapi.dingtalk.com/robot/send?access_token=token';
+    env.DINGTALK_WEBHOOK_SECRET = 'secret';
+    const config = loadBridgeConfig(env);
+    expect(config.notifiers).toEqual(['dingtalk']);
+    expect(config.dingtalkWebhookUrl).toContain('access_token=token');
+    expect(config.dingtalkWebhookSecret).toBe('secret');
+  });
+
+  it('requires DINGTALK_WEBHOOK_URL when the dingtalk notifier is enabled', () => {
+    const env = baseEnv();
+    env.BRIDGE_NOTIFIERS = 'dingtalk';
+    expect(() => loadBridgeConfig(env)).toThrow('DINGTALK_WEBHOOK_URL');
+  });
+
+  it('rejects unsupported notifier channels', () => {
+    const env = baseEnv();
+    env.BRIDGE_NOTIFIERS = 'feishu';
+    expect(() => loadBridgeConfig(env)).toThrow('Unsupported notifier channel: feishu');
+  });
+
   it('rejects a non-loopback internal host', () => {
     const env = { ...baseEnv(), BRIDGE_INTERNAL_HOST: '0.0.0.0' };
     expect(() => loadBridgeConfig(env)).toThrow('loopback');
